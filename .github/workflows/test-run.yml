@@ -1,0 +1,57 @@
+name: Docker App CI
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        repository: 'HookedBehemoth/neuters'
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build and start Docker Compose services
+      run: |
+        docker compose up -d --build
+
+    - name: Verify application is functional
+      id: log-check
+      run: |
+        echo "Wait for app to print success log..."
+        TIMEOUT=10  # Maximum wait time in seconds
+        INTERVAL=2  # Check every 2 seconds
+        ELAPSED=0
+
+        until docker logs neuters 2>&1 | grep -q "Listening on http://0.0.0.0:13369"; do
+          if [ $ELAPSED -ge $TIMEOUT ]; then
+            echo "Error: Timeout ($TIMEOUT seconds) reached waiting for neuters"
+            LOGS=$(docker logs neuters 2>&1)
+            echo "$LOGS"
+            echo "log_found=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          echo "Waiting... ($ELAPSED/$TIMEOUT seconds)"
+          sleep $INTERVAL
+          ELAPSED=$((ELAPSED + INTERVAL))
+        done
+
+        # Once the message is found, verify and set output
+        LOGS=$(docker logs neuters 2>&1)
+        echo "neuters logs:"
+        echo "$LOGS"
+        echo "Success: Found expected log message"
+        echo "log_found=true" >> $GITHUB_OUTPUT
+
+    - name: Stop Docker Compose services
+      if: always()
+      run: |
+        docker compose down
